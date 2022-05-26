@@ -1,0 +1,130 @@
+---
+title: "test8"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## begin
+
+we try something to get better accuracy and deconvolution.
+
+```{r}
+library(fda)
+library(magrittr)
+setwd("D:\\study\\undergraduate\\spolight\\code\\fda_ST\\fun_spotlight")
+source("fun_spotlight.r")
+# source("get_function_data.r")
+# source("seed_init_mtrx_nmf.r")
+# source("train_nmf.r")
+# source("mixture_deconvolution_nmf.r")
+# source("fpca_single_cell1.r")
+# source("downsample_se_obj.r")
+# source("ct_topic_fun.r")
+# source("mixture_deconvolution_fun.r")
+```
+
+## read data
+
+```{r pressure, echo=FALSE}
+setwd("D:/study/undergraduate/spolight/code/SPOTlight_deconvolution_analysis-master")
+data <- readRDS(file=sprintf("%s/se_quartz.RDS", an_tools))
+setwd("D:/study/undergraduate/spolight/code/SPOTlight_deconvolution_analysis-master")
+synthetic_mixtures <- readRDS(file = sprintf("%s/%s/common_synthetic_mixtures.RDS", an_tools, robj_dir))
+STdata=synthetic_mixtures
+test_spot_metadata=STdata[[2]]
+```
+
+## downsample
+
+```{r}
+se_quartz=data
+
+se_quartz <- Seurat::SCTransform(object = se_quartz,
+                                 assay = "RNA",
+                                 verbose = FALSE)
+Seurat::Idents(se_quartz) <- se_quartz$nnet2
+marker_genes <- Seurat::FindAllMarkers(object = se_quartz,
+                                       assay = "SCT",
+                                       slot = "data",
+                                       min.pct = 0,
+                                       only.pos = TRUE,
+                                       logfc.threshold = 0)
+
+marker_genes %>% dplyr::count(cluster)
+
+marker_genes_filt <- marker_genes %>%
+  dplyr::filter(pct.1 > 0.9)
+
+marker_genes_filt =marker_genes %>%
+  dplyr::filter(pct.2 < 0.1)
+
+marker_genes_filt %>% dplyr::count(cluster)
+
+se_sc_down <- SPOTlight::downsample_se_obj(se_obj = data,
+                                           clust_vr = "nnet2",
+                                           cluster_markers = marker_genes,
+                                           cl_n = 100,
+                                           hvg = 0)
+
+```
+
+## basis function
+```{r}
+
+se_sc_down <- downsample_se_obj(
+      se_obj = se_quartz,
+      clust_vr = clust_vr,
+      cluster_markers = marker_genes_filt,
+      cl_n = cl_n,
+      hvg = hvg
+    )
+
+geno = as.matrix(se_sc_down@assays$RNA@counts)
+ST.matrix = STdata[[1]]
+
+ST.matrix = ST.matrix[rownames(geno),]
+cell.type.factor = se_sc_down$nnet2
+
+decon_mtrx = fun_spotlight(
+  geno = geno,
+  ST.matrix = ST.matrix,
+  cell.type.factor = cell.type.factor,
+  ct_mode = "median",
+  nkonts = 120,
+  norder = 3,
+  normalize="0",
+  nfpca = 50,
+  min_count = 0.09
+)
+
+
+decon_mtrx = t(decon_mtrx)
+
+fun_spotlight_deconv <-
+  decon_mtrx[, colnames(decon_mtrx) != "ress_ss"]
+ct_cols <- colnames(fun_spotlight_deconv)
+spatial_decon_syn <-
+  test_synthetic_performance(
+    test_spots_metadata_mtrx = as.matrix(test_spot_metadata[, ct_cols]),
+    spot_composition_mtrx = fun_spotlight_deconv[, ct_cols]
+  )
+
+setwd("D:\\study\\undergraduate\\spolight\\code\\SPOTlight_deconvolution_analysis-master\\analysis\\tool_benchmarking\\2019-11-26\\R_objects_2019-11-26")
+saveRDS(fun_spotlight_deconv,"fun_spotlight_deconv.rds")
+
+```
+
+
+
+
+```{r}
+setwd("D:/study/undergraduate/spolight/code/SPOTlight_deconvolution_analysis-master")
+saveRDS(object = spatial_decon_syn,
+        file = sprintf("%s/%s/fun_spotlight_deconv_normalize.RDS", an_tools, robj_dir))
+```
+
+
+
