@@ -1,0 +1,417 @@
+---
+title: "Untitled"
+author: "songcheng"
+date: "2022/5/21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(SeuratDisk)
+library(Seurat)
+library(magrittr)
+library(SPOTlight)
+library(fda)
+library(magrittr)
+library(Seurat)
+library(ggplot2)
+library(RColorBrewer)
+library(ggthemes)
+library(Seurat)
+library(rcartocolors)
+library(Spaniel)
+setwd("D:\\study\\undergraduate\\spolight\\code\\fda_ST\\fun_spotlight")
+source("fun_spotlight.r")
+```
+
+```{r}
+setwd("D:/study/undergraduate/spolight/code/data_RCTD/RCTD_data")
+# Convert('truedata/data1/all_cells_20200625.h5ad', "h5seurat",
+#         overwrite = FALSE,assay = "RNA")
+seurat_obj <- LoadH5Seurat("truedata/data1/all_cells_20200625.h5seurat")
+```
+
+```{r}
+setwd("D:/study/undergraduate/spolight/code/data_RCTD/RCTD_data/truedata/data1")
+cell.type.factor=read.csv("snRNA_annotation_astro_subtypes_refined59_20200823.csv")
+rownames_cell=cell.type.factor[,1]
+cell.type.factor=cell.type.factor[,-1]
+cell.type.factor=data.frame(cell.type.factor)
+rownames(cell.type.factor)=rownames_cell
+# barcode=c(seurat_obj$barcode)
+# a=lapply(barcode, function(x){
+#   a1=strsplit(x,'\r')
+# })
+# barcode=strsplit(barcode,'')
+
+seurat_obj=seurat_obj[,names(seurat_obj$barcode)%in%rownames(cell.type.factor)]
+cell.type.factor.1=cell.type.factor[names(seurat_obj$barcode),]
+colnames(cell.type.factor)="nnet2"
+rownames(cell.type.factor)=colnames(seurat_obj)
+
+
+seurat_obj$nnet2=cell.type.factor
+```
+
+
+```{r}
+# setwd("D:/study/undergraduate/spolight/code/data_RCTD/RCTD_data/truedata/data1/mouse_brain_visium_wo_cloupe_data/rawdata/ST8059048")
+# seurat_obj_st=Read10X_h5('filtered_feature_bc_matrix.h5')
+
+#  Convert('truedata/data1/mouse_brain_visium_wo_cloupe_data/rawdata/ST8059048/filtered_feature_bc_matrix.h5', "h5seurat",
+#          overwrite = FALSE,assay = "RNA")
+# seurat_obj <- LoadH5Seurat("truedata/data1/all_cells_20200625.h5seurat")
+
+setwd("D:/study/undergraduate/spolight/code/data_RCTD/RCTD_data/truedata/data1/mouse_brain_visium_wo_cloupe_data/rawdata/ST8059048/filtered_feature_bc_matrix")
+#cells=read.csv("barcodes.tsv")
+#features=read.csv("features.tsv")
+seurat_st=ReadMtx(mtx = "matrix.mtx",cells = "barcodes.tsv",features = "features.tsv")
+setwd("D:/study/undergraduate/spolight/code/data_RCTD/RCTD_data/truedata/data1/mouse_brain_visium_wo_cloupe_data/rawdata/ST8059048/spatial")
+seurat_st=createSeurat(counts = seurat_st,barcodeFile = "barcodes.txt")
+
+setwd("D:/study/undergraduate/spolight/code/data_RCTD/RCTD_data/truedata/data1/mouse_brain_visium_wo_cloupe_data/rawdata/ST8059048/spatial")
+image2=Spaniel::parseImage("image3.jpg")
+image2=Spaniel::parseImage("image2.jpg")
+#image2=png::readPNG("tissue_hires_image.png")
+image1=Spaniel::parseImage("tissue_hires_image.jpg")
+seurat_st@images=list(image1,image2)
+saveRDS(seurat_st,"seurat_st1.rds")
+setwd("D:/study/undergraduate/spolight/code/data_RCTD/RCTD_data/truedata/data1/mouse_brain_visium_wo_cloupe_data/rawdata/ST8059048/spatial")
+seurat_st=readRDS("seurat_st1")
+```
+
+```{r}
+setwd("D:/study/undergraduate/spolight/code/data_RCTD/RCTD_data/truedata/data1")
+marker_gene_filt=readRDS("markgenefilt.rds")
+```
+
+```{r}
+clust_vr="nnet2"
+cl_n=40
+hvg=0
+se_sc_down <- downsample_se_obj(
+  se_obj = seurat_obj,
+  clust_vr = clust_vr,
+  cluster_markers = marker_gene_filt,
+  cl_n = cl_n,
+  hvg = hvg
+)
+
+getwd()
+saveRDS(se_sc_down,"se_sc_down.rds")
+```
+
+```{r}
+setwd("D:/study/undergraduate/spolight/code/data_RCTD/RCTD_data/truedata/data1/mouse_brain_visium_wo_cloupe_data/rawdata/ST8059048/filtered_feature_bc_matrix")
+gene_name=read.csv2("features.tsv",sep="\t")
+gene_name=gene_name[,-3]
+gene_name_row=gene_name[,1]
+rownames(gene_name)=gene_name_row
+gene_name=as.matrix(gene_name[,-1])
+rownames(gene_name)=gene_name_row
+geno = as.matrix(se_sc_down@assays$RNA@counts)
+#geno=geno[rownames(geno)%in%rownames(gene_name),]
+rownames(geno)=gene_name[rownames(geno),1]
+marker_gene_filt$gene=gene_name[marker_gene_filt$gene,1]
+ST.matrix = seurat_st@assays$RNA@counts
+ST.matrix = as.matrix(ST.matrix)
+ST.matrix = ST.matrix[rownames(geno), ]
+geno=geno[rownames(ST.matrix),]
+cell.type.factor = se_sc_down$"nnet2"
+```
+
+```{r}
+decon_mtrx = fun_spotlight(
+      geno = geno,
+      ST.matrix = ST.matrix,
+      cell.type.factor = cell.type.factor,
+      nkonts = 300,
+      nfpca=100,
+      ct_mode = "median",
+      marker_gene_order = "1",
+      cluster_marker = marker_genes
+    )
+    
+    decon_mtrx = t(decon_mtrx)
+    setwd("D:/study/undergraduate/spolight/code/data_RCTD/RCTD_data/truedata/data1")
+    saveRDS(decon_mtrx,"decon_mtrx.rds")
+```
+
+```{r}
+cell_types <- colnames(decon_mtrx)[! colnames(decon_mtrx) %in% "res_ss"]
+cell_types <- gsub(pattern = "[[:punct:]]|[[:blank:]]", ".", 
+                   x = cell_types, 
+                   perl = TRUE)
+
+clust_vr="nnet2"
+plt_names <- sort(unique(se_sc_down@meta.data[, clust_vr]))
+
+df_plt_names <- data.frame(df_name = cell_types, 
+                           plt_name = plt_names)
+```
+
+```{r}
+cluster_markers_a=marker_gene_filt
+library(magrittr)
+library(dplyr)
+ct_gene_df <- lapply(unique(cluster_markers_a$cluster), function(clust) {
+  ls1 <- cluster_markers_a[cluster_markers_a$cluster == clust, "gene"]
+  ls2 <- cluster_markers_a[cluster_markers_a$cluster != clust, "gene"]
+  ls1_unique <- ls1[! ls1 %in% ls2]
+
+  return(cluster_markers_a[cluster_markers_a$cluster == clust & cluster_markers_a$gene %in% ls1_unique, ])
+}) %>%
+  bind_rows() %>%
+  #filter(gene %in% rownames(se_sc_down)) %>% 
+  group_by(cluster) %>% 
+  arrange(cluster, p_val) %>% 
+  # top_n(1) %>%
+  filter(row_number() == 1) %>%
+  data.frame()
+
+seurat_st@assays$RNA@scale.data=as.matrix(seurat_st@assays$RNA@data)
+# x1=seurat_st$x
+# y1=seurat_st$y
+# coor1=cbind(x1,y1)
+# setwd("D:/study/undergraduate/spolight/code/data_RCTD/RCTD_data/truedata/data1/mouse_brain_visium_wo_cloupe_data/rawdata/ST8059048/filtered_feature_bc_matrix")
+# saveRDS(coor1,"coor1.rds")
+# seurat_st$x=seurat_st$x/max(seurat_st$x)
+# seurat_st$y=seurat_st$y/max(seurat_st$y)
+# seurat_st$x=seurat_st$x*32
+# seurat_st$y=seurat_st$y*34
+# seurat_st$x=seurat_st$x+1
+# seurat_st$y=seurat_st$y+1
+#minx=5.98 miny=1
+#maxx=33 maxy=29.85597
+setwd("D:/study/undergraduate/spolight/code/data_RCTD/RCTD_data/truedata/data1/mouse_brain_visium_wo_cloupe_data/rawdata/ST8059048/filtered_feature_bc_matrix")
+coor1=readRDS("coor1.rds")
+x=coor1[,1]
+y=coor1[,2]
+seurat_st$x=x
+seurat_st$y=y
+seurat_st$y=seurat_st$y-0.4
+# seurat_st$x=seurat_st$x/1.1+0.5436364
+# seurat_st$y=seurat_st$y/1.2+4.975995
+
+cell_types1=cell_types[cell_types%in%ct_gene_df$cluster]
+gene_plt <- lapply(cell_types1, function(ct) {
+    print(ct)
+    ct_gene_df$cluster <- gsub(pattern = "[[:punct:]]|[[:blank:]]", ".", 
+                                     x = ct_gene_df$cluster, 
+                                     perl = TRUE)
+    cell_types <- gsub(pattern = "[[:punct:]]|[[:blank:]]", ".", 
+                                     x = cell_types, 
+                                     perl = TRUE)
+    ct <- gsub(pattern = "[[:punct:]]|[[:blank:]]", ".", 
+                                     x = ct, 
+                                     perl = TRUE)
+    
+    #seurat_st$x=seurat_st$x-min(seurat_st$x)
+    #seurat_st$y=seurat_st$y-min(seurat_st$y)
+    gene <- ct_gene_df[ct_gene_df$cluster == ct, "gene"]
+    print(gene)
+    
+    tmp_plt <- spanielPlot(object = seurat_st,
+            grob = seurat_st@images[[2]],
+            plotType = "Gene",
+            gene = gene,
+            ptSizeMax = 2, 
+            ptSizeMin = 0,
+            customTitle = sprintf("Expression of: %s",  gene)) +
+      theme_classic() +
+      #xscale(2147,15975)+
+      theme(
+        plot.title = element_text(hjust = 0.5, size = 10),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_blank(),
+        axis.line = element_blank()
+        )
+    tmp_plt
+
+  })
+setwd("D:/study/undergraduate/spolight/code/data_RCTD/RCTD_data/truedata/data1/mouse_brain_visium_wo_cloupe_data/rawdata/ST8059048/spatial")
+saveRDS(gene_plt,"gene_plt.rds")
+```
+
+```{r}
+x=seurat_st$x
+y=seurat_st$y
+decon_df=cbind(decon_mtrx,as.matrix(x))
+decon_df=cbind(decon_df,as.matrix(y))
+decon_df=data.frame(decon_df,row.names = seq(1:nrow(decon_df)))
+decon_mtrx1=data.frame(decon_mtrx)
+colnames(decon_df)=c(colnames(decon_mtrx1),"x","y")
+#decon_col_sum=apply(decon_mtrx, 2, sum)
+#decon_df[,decon_col_sum!=0]
+
+decon_df1=decon_df[1:1000,]
+library(ggthemes)
+library(scatterpie)
+plt=ggplot()+
+  geom_scatterpie(data = decon_df,
+                  aes(x,y,r=100),
+                  cols = colnames(decon_df)[35:40])+
+  scale_y_reverse()+
+theme_classic()  +
+  #scale_colour_calc()
+  scale_fill_manual(values = colorRampPalette(brewer.pal(30, "Pastel2"))(30))
+
+
+plt
+```
+
+```{r}
+cell_types_all <- colnames(decon_mtrx)[which(colnames(decon_mtrx) != "max")]
+
+rownames(decon_mtrx)=colnames(seurat_st)
+decon_df2 <- decon_mtrx %>%
+  data.frame(check.names = F) %>%
+  tibble::rownames_to_column("barcodes")
+seurat_st1=seurat_st
+seurat_st1@meta.data <- seurat_st1@meta.data %>%
+  tibble::rownames_to_column("barcodes") %>%
+  dplyr::left_join(decon_df2, by = "barcodes") %>%
+  tibble::column_to_rownames("barcodes")
+
+
+slice <- names(seurat_st@images)[1]
+metadata_ds <- data.frame(seurat_st1@meta.data)
+#colnames(metadata_ds) <- colnames(seurat_st@meta.data)
+cell_types_interest <- c('Astro.AMY','Astro.AMY.CTX')
+
+
+metadata_ds <- metadata_ds %>% tibble::rownames_to_column("barcodeID") %>%
+            dplyr::mutate(rsum = base::rowSums(.[, cell_types_interest,
+                drop = FALSE])) %>% dplyr::filter(rsum != 0) %>%
+            dplyr::select("barcodeID") %>% dplyr::left_join(metadata_ds %>%
+            tibble::rownames_to_column("barcodeID"), by = "barcodeID") %>%
+            tibble::column_to_rownames("barcodeID")
+
+spatial_coord <- data.frame(seurat_st1@images[[1]]@coordinates) %>%
+        tibble::rownames_to_column("barcodeID") %>% dplyr::mutate(imagerow_scaled = imagerow *
+        cortex_sp@images[[slice]]@scale.factors$lowres, imagecol_scaled = imagecol *
+        cortex_sp@images[[slice]]@scale.factors$lowres) %>% dplyr::inner_join(metadata_ds %>%
+        tibble::rownames_to_column("barcodeID"), by = "barcodeID")
+
+```
+
+
+```{r}
+spatial_coor=data.frame(cbind(seurat_st$x,seurat_st$y))
+colnames(spatial_coor)
+spatial_coor=data.frame(cbind(t(as.matrix(ST.matrix)),spatial_coor))
+img_grob <- grid::rasterGrob(image2, interpolate = FALSE, width = grid::unit(1, 
+        "npc"), height = grid::unit(1, "npc"))
+colnames(spatial_coor)=c(colnames(spatial_coor)[1:19363],"x","y")
+
+spatial_coor$x=seurat_st$y
+spatial_coor$y=seurat_st$x
+#print(img_grob)
+spatial_coor$x=spatial_coor$x/max(spatial_coor$x)
+spatial_coor$y=spatial_coor$y/max(spatial_coor$y)
+spatial_coor$x=spatial_coor$x*nrow(image2)
+spatial_coor$y=spatial_coor$y*nrow(image2)
+
+
+gene_plt <- lapply(cell_types, function(ct) {
+    print(ct)
+    ct_gene_df$cluster <- gsub(pattern = "[[:punct:]]|[[:blank:]]", ".", 
+                                     x = ct_gene_df$cluster, 
+                                     perl = TRUE)
+    cell_types <- gsub(pattern = "[[:punct:]]|[[:blank:]]", ".", 
+                                     x = cell_types, 
+                                     perl = TRUE)
+    ct <- gsub(pattern = "[[:punct:]]|[[:blank:]]", ".", 
+                                     x = ct, 
+                                     perl = TRUE)
+    
+    #seurat_st$x=seurat_st$x-min(seurat_st$x)
+    #seurat_st$y=seurat_st$y-min(seurat_st$y)
+    gene <- ct_gene_df[ct_gene_df$cluster == ct, "gene"]
+    print(gene)
+    
+    
+    Max = max(spatial_coor[,gene])
+    spatial_coor[,gene] = spatial_coor[,gene]/Max
+    scatterpie_plt <- suppressMessages(ggplot2::ggplot() +
+                                         ggplot2::annotation_custom(grob = img_grob, 
+        xmin = 0, xmax = ncol(image2), ymin = 0, ymax = -nrow(image2)) + 
+        ggplot2::geom_point(data = spatial_coor, 
+                            ggplot2::aes(x = x, y = y,size = get(gene), color = '#FF4500')) +
+        ggplot2::scale_y_reverse() + 
+          ggplot2::ylim(nrow(image2), 0) + 
+          ggplot2::xlim(0, ncol(image2)) + 
+          cowplot::theme_half_open(11, rel_small = 1) +
+          ggplot2::theme_void() + 
+          ggplot2::coord_fixed(ratio = 1, xlim = NULL, ylim = NULL, expand = TRUE, clip = "on")+
+          ggplot2::scale_size_continuous(range=c(0,2))+
+          labs(size = gene))
+
+    pdf(paste(outdir,paste(cell,'dot.pdf',sep = '.'),sep = '/'),width = 8,height = 7)
+    print(scatterpie_plt)
+    dev.off()
+    
+    
+})
+```
+
+```{r}
+rownames(decon_mtrx) <- rownames(seurat_st@meta.data)
+colnames(decon_mtrx) <- gsub(pattern = "[[:punct:]]|[[:blank:]]", ".", 
+                                  x = colnames(decon_mtrx), 
+                                  perl = TRUE)
+seurat_st@assays$RNA@scale.data <- t(decon_mtrx)
+seurat_st@assays$RNA@data <- t(decon_mtrx)
+decon_mtrx1=as.data.frame(decon_mtrx)
+
+ct_plt <- lapply(cell_types, function(ct){
+  ct <- gsub(pattern = "[[:punct:]]|[[:blank:]]", ".", 
+             x = ct, 
+             perl = TRUE)
+  print(ct)
+  
+  #image4=Spaniel::parseImage("fn_image4.jpg")
+  #image2=Spaniel::parseImage("fn_image2.jpg")
+  #st_se@images <- list(image1,image2,image3,image4)
+  #st_se$y=(st_se$y/max(st_se$y))*30
+  #st_se$x=(st_se$x/max(st_se$x))*30
+  
+  tmp_plt <- spanielPlot(object = seurat_st, 
+                         grob = seurat_st@images[[2]],
+                         plotType = "Gene",
+                         gene = ct,
+                         ptSizeMax = 0.5, 
+                         ptSizeMin = 0.1,
+                         customTitle = sprintf(" Proportion of cell type: %s",ct)) +
+    #geom_point(aes(alpha = ct)) +
+    theme_classic() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 10),
+      axis.ticks = element_blank(),
+      axis.text = element_blank(),
+      axis.title = element_blank(),
+      axis.line = element_blank()
+    ) +
+    scale_color_gradientn(colours = heat.colors(10, rev = TRUE),
+                          limits = c(0, 1), name = "Proportion") +
+    scale_size_continuous(limits = c(0, 1), name = "Proportion")
+  
+  # print(tmp_plt)
+  
+  # ggsave(
+  #   filename = sprintf("Proportion of cell type: %s", ct),
+  #   device = "png",
+  #   width = 8.56,
+  #   height = 8
+  # )
+  return(tmp_plt)
+})
+```
+
+
+
+
