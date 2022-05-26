@@ -1,0 +1,100 @@
+---
+title: "test8"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## begin
+
+we try something to get better accuracy and deconvolution.
+
+```{r}
+library(fda)
+library(magrittr)
+source("fun_spotlight.R")
+```
+
+## read data
+
+```{r pressure, echo=FALSE}
+setwd("D:\\study\\undergraduate\\spolight\\code\\fda_ST")
+data = readRDS("se_quartz.RDS")
+STdata = readRDS("common_synthetic_mixtures.RDS")
+```
+
+## downsample
+
+```{r}
+se_quartz=data
+
+se_quartz <- Seurat::SCTransform(object = se_quartz,
+                                 assay = "RNA",
+                                 verbose = FALSE)
+Seurat::Idents(se_quartz) <- se_quartz$nnet2
+marker_genes <- Seurat::FindAllMarkers(object = se_quartz,
+                                       assay = "SCT",
+                                       slot = "data",
+                                       min.pct = 0,
+                                       only.pos = TRUE,
+                                       logfc.threshold = 0)
+
+marker_genes %>% dplyr::count(cluster)
+
+marker_genes_filt <- marker_genes %>%
+  dplyr::filter(pct.1 > 0.9)
+
+marker_genes_filt %>% dplyr::count(cluster)
+
+se_sc_down <- SPOTlight::downsample_se_obj(se_obj = data,
+                                           clust_vr = "nnet2",
+                                           cluster_markers = marker_genes,
+                                           cl_n = 100,
+                                           hvg = 0)
+
+```
+
+```{r}
+geno=as.matrix(se_sc_down@assays[["RNA"]]@counts)
+ST.matrix = as.matrix(STdata[["topic_profiles"]])
+ST.matrix = ST.matrix[rownames(geno),]
+cell.type.factor =se_sc_down$nnet2
+```
+
+## deconv
+
+```{r}
+decon_mtrx=fun_spotlight(geno = geno,
+                         ST.matrix = ST.matrix,
+                         cell.type.factor = cell.type.factor)
+
+decon_mtrx=t(decon_mtrx)
+
+fun_spotlight_deconv <- decon_mtrx[, colnames(decon_mtrx) != "ress_ss"]
+```
+
+## ref
+
+```{r}
+synthetic_mixtures=readRDS("common_synthetic_mixtures.RDS")
+synthetic_comp <- as.matrix(synthetic_mixtures[[2]] /
+                              rowSums(synthetic_mixtures[[2]]))
+```
+
+## per
+
+```{r}
+spot_perform=SPOTlight::test_synthetic_performance(
+  test_spots_metadata_mtrx = fun_spotlight_deconv[, colnames(synthetic_comp)],
+  spot_composition_mtrx = synthetic_comp)
+```
+```{r}
+setwd("D:/study/undergraduate/spolight/code/SPOTlight_deconvolution_analysis-master")
+saveRDS(object = fun_spotlight_deconv,
+        file = sprintf("%s/%s/fun_spotlight_deconv.RDS", an_tools, robj_dir))
+```
+
+
+

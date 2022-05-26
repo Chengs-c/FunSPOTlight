@@ -1,0 +1,196 @@
+---
+title: "test8"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## begin
+
+we try something to get better accuracy and deconvolution.
+
+```{r}
+library(fda)
+library(magrittr)
+source("get_function_data.r")
+source("seed_init_mtrx_nmf.r")
+source("train_nmf.r")
+source("mixture_deconvolution_nmf.r")
+source("fpca_single_cell1.r")
+source("downsample_se_obj.r")
+source("ct_topic_fun.r")
+source("mixture_deconvolution_fun.r")
+```
+
+## read data
+
+```{r pressure, echo=FALSE}
+setwd("D:\\study\\undergraduate\\spolight\\code\\fda_ST")
+data = readRDS("se_quartz.RDS")
+STdata = readRDS("common_synthetic_mixtures.RDS")
+```
+
+## downsample
+
+```{r}
+se_quartz=data
+
+se_quartz <- Seurat::SCTransform(object = se_quartz,
+                                 assay = "RNA",
+                                 verbose = FALSE)
+Seurat::Idents(se_quartz) <- se_quartz$nnet2
+marker_genes <- Seurat::FindAllMarkers(object = se_quartz,
+                                       assay = "SCT",
+                                       slot = "data",
+                                       min.pct = 0,
+                                       only.pos = TRUE,
+                                       logfc.threshold = 0)
+
+marker_genes %>% dplyr::count(cluster)
+
+marker_genes_filt <- marker_genes %>%
+  dplyr::filter(pct.1 > 0.9)
+
+marker_genes_filt %>% dplyr::count(cluster)
+
+se_sc_down <- SPOTlight::downsample_se_obj(se_obj = data,
+                                           clust_vr = "nnet2",
+                                           cluster_markers = marker_genes,
+                                           cl_n = 100,
+                                           hvg = 0)
+
+```
+
+## basis function
+```{r}
+geno=as.matrix(se_sc_down@assays[["RNA"]]@counts)
+
+ST.matrix = as.matrix(STdata[["topic_profiles"]])
+ST.matrix = ST.matrix[rownames(geno),]
+
+p = nrow(geno)
+t = seq.int(0,1,1/(p-1))
+nkonts = 250
+norder = 3
+nbasis = nkonts + norder - 2 
+rangeval = c(0,1)
+genobasis <- create.bspline.basis(rangeval= rangeval, nbasis=nbasis,  norder=norder)
+
+Phi <- eval.basis(t, genobasis)
+
+```
+
+
+
+```{r}
+## 重新排列顺序
+gene_name=rownames(geno)
+gene_name_new=sample(gene_name)
+geno=geno[gene_name_new,]
+ST.matrix=ST.matrix[gene_name_new,]
+```
+
+
+
+## annot
+
+```{r}
+cell.type.factor=se_sc_down$nnet2
+cell.type.factor.all=unique(cell.type.factor)
+table(cell.type.factor)
+```
+
+
+## pca
+
+```{r}
+new_basia_coef=fpca_single_cell1(geno=geno,
+                                t=t,
+                                nbasis = nbasis,
+                                genobasis = genobasis,
+                                cell.type.factor = cell.type.factor)
+Phi=new_basia_coef
+```
+
+## function data
+
+## trans??
+```{r}
+geno.max = max(geno)
+geno = geno / geno.max
+#Phi的维度为特征数量（基因数量）*基函数数量
+#geno的维度为样本数*特征数量（基因数量）
+geno <- t(geno)
+
+ST.matrix.max = max(ST.matrix)
+ST.matrix= ST.matrix/ST.matrix.max
+
+```
+
+## to function
+
+```{r}
+
+U <- geno %*% Phi %*% ginv(t(Phi) %*% Phi)
+
+ST.U <- t(ST.matrix) %*% Phi %*% ginv(t(Phi) %*% Phi)
+
+```
+
+## trans
+
+```{r}
+Ubar=U-mean(U)
+Usd=(U-mean(U))/sd(U)
+
+ST.Ubar=ST.U-mean(ST.U)
+ST.Usd=(ST.U-mean(ST.U))/sd(ST.U)
+```
+
+## trans
+
+```{r}
+U_vec
+```
+
+
+## deconv
+
+```{r}
+ct_topic_fun1=ct_topic_fun(U,cell.type.factor)
+
+decon_mtrx=mixture_deconvolution_fun(ST.U,
+                                     ct_topic_fun1,
+                                     cell.type.factor,
+                                     min_count=0.09)
+
+decon_mtrx=t(decon_mtrx)
+
+fun_spotlight_deconv <- decon_mtrx[, colnames(decon_mtrx) != "ress_ss"]
+```
+
+## ref
+
+```{r}
+synthetic_mixtures=readRDS("common_synthetic_mixtures.RDS")
+synthetic_comp <- as.matrix(synthetic_mixtures[[2]] /
+                              rowSums(synthetic_mixtures[[2]]))
+```
+
+## per
+
+```{r}
+spot_perform=SPOTlight::test_synthetic_performance(
+  test_spots_metadata_mtrx = fun_spotlight_deconv[, colnames(synthetic_comp)],
+  spot_composition_mtrx = synthetic_comp)
+```
+```{r}
+setwd("D:/study/undergraduate/spolight/code/SPOTlight_deconvolution_analysis-master")
+saveRDS(object = fun_spotlight_deconv,
+        file = sprintf("%s/%s/fun_spotlight_deconv.RDS", an_tools, robj_dir))
+```
+
+
+
